@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Group Activity Analysis</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"/>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <style>
+        #map {
+            height: 600px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-8">Group Activity Analysis</h1>
+
+        <!-- Filters -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Year</label>
+                    <input type="number" id="year" min="1970" max="2022"
+                           class="w-full p-2 border rounded" value="1970">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Region</label>
+                    <select id="region" class="w-full p-2 border rounded">
+                        <option value="">All Regions</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Minimum Events</label>
+                    <input type="number" id="minEvents" min="1"
+                           class="w-full p-2 border rounded" value="5">
+                </div>
+            </div>
+            <div class="mt-4">
+                <button onclick="updateAnalysis()"
+                        class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                    Update Analysis
+                </button>
+            </div>
+        </div>
+
+        <!-- Map -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <div id="map"></div>
+        </div>
+
+        <!-- Summary -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 class="text-xl font-bold mb-4">Analysis Summary</h2>
+            <div id="summary" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Summary will be populated here -->
+            </div>
+        </div>
+
+        <!-- Detailed Results -->
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-bold mb-4">Location Details</h2>
+            <div id="details" class="space-y-4">
+                <!-- Details will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let map;
+        let markers = [];
+
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([0, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+        }
+
+        // Load available regions
+        async function loadRegions() {
+            try {
+                const response = await axios.get('/api/filters');
+                const regionSelect = document.getElementById('region');
+                response.data.regions.forEach(region => {
+                    const option = new Option(region, region);
+                    regionSelect.add(option);
+                });
+            } catch (error) {
+                console.error('Error loading regions:', error);
+            }
+        }
+
+        // Clear existing markers
+        function clearMarkers() {
+            markers.forEach(marker => marker.remove());
+            markers = [];
+        }
+
+        // Add markers to map
+        function addMarkers(locations) {
+            clearMarkers();
+
+            locations.forEach(loc => {
+                // Create marker
+                const marker = L.marker([loc.lat, loc.lon]);
+
+                // Create popup content
+                const popupContent = `
+                    <div class="p-4">
+                        <h3 class="font-bold">${loc.country}</h3>
+                        <p>Region: ${loc.region}</p>
+                        <p>Groups: ${loc.metrics.unique_groups}</p>
+                        <p>Events: ${loc.metrics.total_events}</p>
+                        <p>Diversity: ${loc.metrics.group_diversity}%</p>
+                    </div>
+                `;
+
+                marker.bindPopup(popupContent);
+                marker.addTo(map);
+                markers.push(marker);
+
+                // Add circle for activity density
+                const circle = L.circle(
+                    [loc.lat, loc.lon],
+                    {
+                        radius: loc.metrics.total_events * 1000,
+                        color: loc.metrics.unique_groups > 1 ? 'red' : 'blue',
+                        fillColor: loc.metrics.unique_groups > 1 ? 'red' : 'blue',
+                        fillOpacity: 0.2
+                    }
+                );
+                circle.addTo(map);
+                markers.push(circle);
+            });
+
+            // Fit map bounds to markers
+            if (markers.length > 0) {
+                const group = L.featureGroup(markers);
+                map.fitBounds(group.getBounds());
+            }
+        }
+
+        // Update analysis results
+       // Update analysis results
+        async function updateAnalysis() {
+            try {
+                const year = document.getElementById('year').value;
+                const region = document.getElementById('region').value;
+                const minEvents = document.getElementById('minEvents').value;
+
+                const response = await axios.get('/api/analysis/group-activity', {
+                    params: {
+                        year,
+                        region,
+                        min_events: minEvents
+                    }
+                });
+
+                if (response.data.locations) {
+                    // Clear existing markers
+                    clearMarkers();
+
+                    // Add new markers
+                    response.data.locations.forEach(loc => {
+                        // Add marker
+                        const marker = L.marker([loc.lat, loc.lon]);
+
+                        // Create popup content
+                        const popupContent = `
+                            <div class="p-4">
+                                <h3 class="font-bold">${loc.country}</h3>
+                                <p>Region: ${loc.region}</p>
+                                <p>Groups: ${loc.metrics.unique_groups}</p>
+                                <p>Events: ${loc.metrics.total_events}</p>
+                                <p>Diversity: ${loc.metrics.group_diversity}%</p>
+                            </div>
+                        `;
+
+                        marker.bindPopup(popupContent);
+                        marker.addTo(map);
+                        markers.push(marker);
+
+                        // Add circle
+                        const circle = L.circle(
+                            [loc.lat, loc.lon],
+                            {
+                                radius: loc.metrics.total_events * 1000,
+                                color: loc.metrics.unique_groups > 1 ? 'red' : 'blue',
+                                fillColor: loc.metrics.unique_groups > 1 ? 'red' : 'blue',
+                                fillOpacity: 0.2
+                            }
+                        );
+                        circle.addTo(map);
+                        markers.push(circle);
+                    });
+
+                    // Fit bounds
+                    if (markers.length > 0) {
+                        const group = L.featureGroup(markers);
+                        map.fitBounds(group.getBounds());
+                    }
+
+                    // Update summary and details
+                    if (response.data.summary) {
+                        updateSummary(response.data.summary);
+                    }
+                    if (response.data.analysis) {
+                        updateDetails(response.data.analysis);
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating analysis:', error);
+            }
+        }
+
+        // Update summary section
+        function updateSummary(summary) {
+            document.getElementById('summary').innerHTML = `
+                <div class="p-4 bg-blue-50 rounded">
+                    <div class="text-sm text-gray-600">Total Locations</div>
+                    <div class="text-xl font-bold">${summary.total_locations}</div>
+                </div>
+                <div class="p-4 bg-green-50 rounded">
+                    <div class="text-sm text-gray-600">Total Groups</div>
+                    <div class="text-xl font-bold">${summary.total_unique_groups}</div>
+                </div>
+                <div class="p-4 bg-yellow-50 rounded">
+                    <div class="text-sm text-gray-600">Average Diversity</div>
+                    <div class="text-xl font-bold">${summary.average_group_diversity}%</div>
+                </div>
+                <div class="p-4 bg-purple-50 rounded">
+                    <div class="text-sm text-gray-600">Most Diverse Location</div>
+                    <div class="text-xl font-bold">${summary.most_diverse_location || 'N/A'}</div>
+                </div>
+            `;
+        }
+
+        // Update details section
+        function updateDetails(analysis) {
+            const detailsHtml = Object.entries(analysis).map(([location, data]) => `
+                <div class="border-b pb-4">
+                    <h3 class="font-bold text-lg">${location}</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+                        <div>
+                            <p class="text-sm text-gray-600">Groups: ${data.metrics.unique_groups}</p>
+                            <p class="text-sm text-gray-600">Events: ${data.metrics.total_events}</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-600">Density: ${data.metrics.activity_density.toFixed(2)}</p>
+                            <p class="text-sm text-gray-600">Diversity: ${data.metrics.group_diversity}%</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-gray-600">Groups:</p>
+                            <ul class="text-sm">
+                                ${data.groups.map(g => `
+                                    <li>${g.name} (${g.percentage}%)</li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            document.getElementById('details').innerHTML = detailsHtml;
+        }
+
+        // Initialize
+        initMap();
+        loadRegions();
+        updateAnalysis();
+    </script>
+</body>
+</html>
